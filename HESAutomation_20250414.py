@@ -5,6 +5,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from datetime import datetime, timedelta
 import time
+from selenium.webdriver.common.keys import Keys
 
 class HESAutomation:
     def __init__(self, config=None):
@@ -140,21 +141,36 @@ class HESAutomation:
     def navigate_to_meter(self, meter_number):
         self.element_action("//span[normalize-space()='Meters']")
         self.element_action("//input[@id='FieldFilter']", 'send_keys', meter_number)
-        self.element_action("//a[@class='btn btn-primary btn-xs dropdown-toggle']//span[@class='caret']")
+        dropdown_toggle_element = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//a[@class='btn btn-primary btn-xs dropdown-toggle']")))
+        self.driver.execute_script("arguments[0].click();", dropdown_toggle_element) # JavaScript click
+        # Explicitly wait for a generic command link to be clickable within the dropdown, ensuring the menu is open and interactive
+        self.wait.until(EC.element_to_be_clickable((By.XPATH, "//a[normalize-space()='Get RTC']")))
+        self.delay(0.5) # Small delay to ensure dropdown menu items are fully interactive
 
     def execute_command(self, meter_number, command_name, com_type, **params):
         try:
             print(f"\nExecuting {command_name}")
             self.navigate_to_meter(meter_number)
-            self.delay(3)
-            self.wait.until(EC.element_to_be_clickable((By.XPATH, f"//a[normalize-space()='{command_name}']"))).click()
-            self.delay(3)
+            self.delay(1) # Add a 1-second delay to ensure dropdown contents are interactive
+
+            # Wait for a generic command link within the dropdown to be clickable, ensuring the menu is open
+            self.wait.until(EC.element_to_be_clickable((By.XPATH, "//a[normalize-space()='Get RTC']")))
+            self.delay(0.2) # Small delay to ensure menu items are fully interactive after they are clickable
+
+            # Now, wait for and click the specific command link
+            command_link = self.wait.until(EC.element_to_be_clickable((By.XPATH, f"//a[normalize-space()='{command_name}']")))
+            self.driver.execute_script("arguments[0].click();", command_link)
+
             self.wait.until(EC.visibility_of_element_located((By.CLASS_NAME, 'modal-content')))
 
             if 'input_value' in params:
-                input_field = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input.form-control[type='text']")))
+                field_to_target = params.get('field_id', 'Period')  # Default to 'Period' if not specified
+                input_field = self.wait.until(EC.visibility_of_element_located((By.ID, field_to_target)))
+                input_field.click()
                 input_field.clear()
-                input_field.send_keys(str(params['input_value']))
+                self.driver.execute_script("arguments[0].value = arguments[1];", input_field, str(params['input_value']))
+                self.driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", input_field)
+                self.driver.execute_script("arguments[0].dispatchEvent(new Event('blur'));", input_field)
                 self.delay(2)
 
             if 'select_value' in params:
@@ -176,6 +192,25 @@ class HESAutomation:
             return False
 
     def run_test_sequence(self, meter_number, com_type):
+        print(f"\nExecuting SET commands using COM {com_type}...")
+        set_commands = [
+            ('Set Profile capture Period', {'input_value': 900, 'field_id': 'Period'}),      
+            ('Set Demand Integration Period', {'input_value': 900, 'field_id': 'Period'}),
+            ('Set Instant Capture Period', {'input_value': 900, 'field_id': 'Period'}),
+            ('Set Payment Mode', {'select_value': 1}),
+            ('Set Netmetering Mode', {'select_value': 1}),
+            ('Set Load Limit', {'input_value': 11111, 'field_id': 'LoadLimit'}),
+            ('Set Load Curtailment (Lockout Period)', {'input_value': 900, 'field_id': 'Period'}),
+            ('Set Load Curtailment (Interval Time)', {'input_value': 300, 'field_id': 'Interval'}),
+            ('Set Load Curtailment (Reconnection Attempts)', {'input_value': 3, 'field_id': 'Attempts'}),
+            ('Set Tamper Occurrence Interval', {'input_value': 30, 'field_id': 'Interval'}),
+            ('Set Tamper Restoration Interval', {'input_value': 30, 'field_id': 'Interval'})
+        ]
+
+        for command, params in set_commands:
+            self.execute_command(meter_number, command, com_type, **params)
+            self.delay(2)
+
         print(f"\nExecuting GET commands using COM {com_type}...")
         get_commands = [
             'Get RTC', 'Get Load Limit', 'Get Profile Capture Period', 'Get Demand Integration Period',
@@ -190,16 +225,6 @@ class HESAutomation:
 
         for command in get_commands:
             self.execute_command(meter_number, command, com_type)
-            self.delay(2)
-
-        print(f"\nExecuting SET commands using COM {com_type}...")
-        set_commands = [
-            ('Set Netmetering Mode', {'select_value': 1}),
-            ('Set Payment Mode', {'select_value': 1})
-        ]
-
-        for command, params in set_commands:
-            self.execute_command(meter_number, command, com_type, **params)
             self.delay(2)
 
         print(f"\nExecuting Connect/Disconnect tests using COM {com_type}...")
@@ -270,12 +295,12 @@ if __name__ == "__main__":
     try:
         config = {
             'HES_URL': "https://eqahes.kimbal.io/Account/Login",
-            'EMAIL': "gaurav@kimbal.io",
-            'PASSWORD': "Gaurav@2024",
-            'COMMAND_DELAY': 20,
-            'WAIT_TIMEOUT': 10,
-            'METER_LIST': ['JA8082180'],
-            'COM_TYPE': 'RF' # Can be 'RF', 'CELLULAR', or 'TCP'
+            'EMAIL': "tarun@kimbal.io",
+            'PASSWORD': "Tarun@crystal2023",
+            'COMMAND_DELAY': 30,
+            'WAIT_TIMEOUT': 40,
+            'METER_LIST': ['MH9008700'],
+            'COM_TYPE': 'CELLULAR' # Can be 'RF', 'CELLULAR', or 'TCP'
         }
 
         hes = HESAutomation(config)
